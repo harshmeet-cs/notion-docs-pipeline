@@ -1,0 +1,53 @@
+name: Notion Docs — Suggest Updates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+  # Allow manual trigger with extra context
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Commit SHA to analyze (defaults to HEAD)"
+        required: false
+      extra_context:
+        description: "Extra guidance for Claude (e.g. 'Also update the permissions matrix')"
+        required: false
+
+jobs:
+  suggest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Commit comments use the issues write permission
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Analyze diff and post suggestions
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
+          NOTION_SPACE_PAGE_ID: ${{ secrets.NOTION_SPACE_PAGE_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ inputs.commit_sha || github.sha }}
+          EXTRA_CONTEXT: ${{ inputs.extra_context || '' }}
+        run: python scripts/analyze_diff.py
+
+      - name: Upload suggestion artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: suggestion-${{ inputs.commit_sha || github.sha }}
+          path: suggestion.json
+          retention-days: 30

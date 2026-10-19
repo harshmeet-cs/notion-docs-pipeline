@@ -1,0 +1,61 @@
+name: Notion Docs — Rollback
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  rollback:
+    # Only run for /notion-rollback sha=<sha> comments
+    if: startsWith(github.event.comment.body, '/notion-rollback')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Authorize commenter
+        id: auth
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.event.comment.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          PERM=$(gh api repos/$REPO/collaborators/$ACTOR/permission --jq '.permission' 2>/dev/null || echo "none")
+          if [[ "$PERM" != "admin" && "$PERM" != "write" && "$PERM" != "maintain" ]]; then
+            echo "::error::$ACTOR does not have write access — rollback denied."
+            exit 1
+          fi
+
+      - name: Parse target SHA from command
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          SHA=$(echo "$COMMENT_BODY" | grep -oP 'sha=\K[a-f0-9]+' || echo "")
+          if [[ -z "$SHA" ]]; then
+            echo "::error::No sha= found in /notion-rollback command. Usage: /notion-rollback sha=<commit-sha>"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Download rollback log artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rollback-${{ steps.parse.outputs.sha }}
+
+      - name: Execute rollback
+        env:
+          NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ steps.parse.outputs.sha }}
+          REPO: ${{ github.repository }}
+        run: python scripts/rollback_notion.py
