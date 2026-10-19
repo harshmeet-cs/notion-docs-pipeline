@@ -1,22 +1,27 @@
 """
 Phase 1 & 2: Analyze the merge diff with Claude and post suggestions as a GitHub commit comment.
 
-Environment variables (set by GitHub Actions):
-  ANTHROPIC_API_KEY      - Anthropic API key
+LLM backend (pick one — checked in this order):
+  1. ANTHROPIC_API_KEY set  → uses anthropic SDK directly
+  2. claude CLI on PATH     → uses `claude -p` subprocess (Claude Code users, local testing)
+  3. MOCK_CLAUDE=true       → returns a hardcoded suggestion (no LLM needed at all)
+
+Environment variables (set by GitHub Actions or .env for local runs):
   NOTION_API_TOKEN       - Notion integration token
   NOTION_SPACE_PAGE_ID   - Root Notion page whose children are the doc pages to scan
   GH_TOKEN               - GitHub token (GITHUB_TOKEN from Actions)
   COMMIT_SHA             - The merge commit SHA
   REPO                   - "owner/repo"
   EXTRA_CONTEXT          - Optional extra instructions from a /notion-rerun command
+  MOCK_CLAUDE            - Set to "true" to skip LLM and return a canned suggestion
 """
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 
-import anthropic
 import requests
 from notion_client import Client as NotionClient
 
@@ -30,14 +35,12 @@ def get_diff() -> str:
         text=True,
     )
     diff = result.stdout.strip()
-    # Truncate to ~12 000 chars so we stay well inside the context window
     if len(diff) > 12_000:
         diff = diff[:12_000] + "\n\n[diff truncated — showing first 12 000 chars]"
     return diff
 
 
 def list_notion_pages(notion: NotionClient, root_page_id: str) -> list[dict]:
-    """Return a flat list of {id, title} for all children of root_page_id."""
     response = notion.blocks.children.list(block_id=root_page_id)
     pages = []
     for block in response.get("results", []):
@@ -53,14 +56,7 @@ def list_notion_pages(notion: NotionClient, root_page_id: str) -> list[dict]:
     return pages
 
 
-def ask_claude(diff: str, pages: list[dict], extra_context: str) -> list[dict]:
-    """Ask Claude which pages need updating and what the new content should be."""
-    client = anthropic.Anthropic()
-
-    page_list_text = "\n".join(
-        f"- [{p['title']}]({p['url']}) (id: {p['id']})" for p in pages
-    )
-
+def build_prompt(diff: str, pages: list[dict], extra_context: str) -> tuple[str, str]:
     system = (
         "You are a technical writer maintaining documentation for a TypeScript/React frontend codebase. "
         "Given a git diff and a list of Notion documentation pages, identify which pages need updating "
@@ -73,25 +69,92 @@ def ask_claude(diff: str, pages: list[dict], extra_context: str) -> list[dict]:
         "and 'after' is the proposed replacement. If the section is new, set before to empty string.\n\n"
         "If no pages need updating, return an empty array []."
     )
-
+    page_list_text = "\n".join(
+        f"- [{p['title']}]({p['url']}) (id: {p['id']})" for p in pages
+    )
     user_parts = [f"## Git diff\n\n```diff\n{diff}\n```\n\n## Notion pages\n\n{page_list_text}"]
     if extra_context:
         user_parts.append(f"\n\n## Additional context from reviewer\n\n{extra_context}")
+    return system, "\n".join(user_parts)
 
+
+def parse_llm_response(raw: str) -> list[dict]:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return json.loads(raw)
+
+
+# ── LLM backends ────────────────────────────────────────────────────────────
+
+def ask_via_anthropic_sdk(system: str, user: str) -> list[dict]:
+    import anthropic
+    client = anthropic.Anthropic()
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
         system=system,
-        messages=[{"role": "user", "content": "\n".join(user_parts)}],
+        messages=[{"role": "user", "content": user}],
     )
+    return parse_llm_response(message.content[0].text)
 
-    raw = message.content[0].text.strip()
-    # Strip markdown code fences if Claude wrapped the JSON
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
-    return json.loads(raw)
+def ask_via_claude_cli(system: str, user: str) -> list[dict]:
+    """Use the local `claude` CLI (Claude Code). Works without an API key."""
+    full_prompt = f"{system}\n\n---\n\n{user}"
+    result = subprocess.run(
+        ["claude", "-p", full_prompt],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"claude CLI exited {result.returncode}: {result.stderr.strip()}")
+    return parse_llm_response(result.stdout)
 
+
+def ask_via_mock(pages: list[dict]) -> list[dict]:
+    """Return a hardcoded suggestion — for testing the plumbing without any LLM."""
+    if not pages:
+        return []
+    page = pages[0]
+    return [
+        {
+            "pageId": page["id"],
+            "pageTitle": page["title"],
+            "pageUrl": page["url"],
+            "sections": [
+                {
+                    "heading": "Widget Registry",
+                    "before": "Previous widget registry content.",
+                    "after": "[MOCK] Updated widget registry — replace this text before approving.",
+                }
+            ],
+        }
+    ]
+
+
+def ask_claude(diff: str, pages: list[dict], extra_context: str) -> list[dict]:
+    system, user = build_prompt(diff, pages, extra_context)
+
+    if os.environ.get("MOCK_CLAUDE", "").lower() == "true":
+        print("  Using MOCK mode (no LLM call).")
+        return ask_via_mock(pages)
+
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        print("  Using Anthropic SDK.")
+        return ask_via_anthropic_sdk(system, user)
+
+    if shutil.which("claude"):
+        print("  Using claude CLI (Claude Code).")
+        return ask_via_claude_cli(system, user)
+
+    print("ERROR: No LLM backend available.")
+    print("  Set ANTHROPIC_API_KEY, ensure `claude` is on PATH, or set MOCK_CLAUDE=true.")
+    sys.exit(1)
+
+
+# ── Comment formatting ───────────────────────────────────────────────────────
 
 def format_comment(suggestions: list[dict], commit_sha: str, extra_context: str) -> str:
     if not suggestions:
@@ -112,17 +175,17 @@ def format_comment(suggestions: list[dict], commit_sha: str, extra_context: str)
 
     for suggestion in suggestions:
         lines += [
-            f"---",
+            "---",
             f"### [{suggestion['pageTitle']}]({suggestion['pageUrl']})",
             "",
         ]
         for section in suggestion.get("sections", []):
             lines += [
-                f"<details>",
+                "<details>",
                 f"<summary><strong>{section['heading']}</strong> — click to expand / edit</summary>",
                 "",
                 "**Current content:**",
-                f"```",
+                "```",
                 section.get("before", "(new section)"),
                 "```",
                 "",
@@ -143,7 +206,7 @@ def format_comment(suggestions: list[dict], commit_sha: str, extra_context: str)
         "> `/notion-approve`",
         "",
         "**Rerun analysis with extra context:**",
-        f'> `/notion-rerun context="Also update the permissions matrix section"`',
+        '> `/notion-rerun context="Also update the permissions matrix section"`',
         "",
         "**Skip without changes:**",
         "> `/notion-skip`",
@@ -165,7 +228,6 @@ def post_commit_comment(repo: str, commit_sha: str, body: str, token: str) -> in
 
 
 def main() -> None:
-    anthropic_key = os.environ["ANTHROPIC_API_KEY"]
     notion_token = os.environ["NOTION_API_TOKEN"]
     root_page_id = os.environ["NOTION_SPACE_PAGE_ID"]
     gh_token = os.environ["GH_TOKEN"]
