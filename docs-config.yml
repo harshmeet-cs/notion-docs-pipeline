@@ -1,0 +1,19 @@
+# Maps source file paths to Notion documentation pages.
+#
+# When a merge touches files under watch_paths, Claude is invoked once per page
+# to suggest updates to the listed sections. A docs PR is raised with the
+# proposed content in notion-changes.md for human review before any Notion writes.
+
+pages:
+  - page_id: "3fe1043d-19d5-815a-ab17-db5b6a3c8634"
+    page_title: "Studio FE — Widget Catalog (Demo)"
+    page_url: "https://app.notion.com/p/3fe1043d19d5815aab17db5b6a3c8634"
+    watch_paths:
+      - "src/sovereign/typescript/apps/client/src/components/tp/locates/"
+      - "src/sovereign/typescript/libs/shared/studio-platform/registry/"
+      - "src/sovereign/typescript/apps/client/next.config.js"
+    sections:
+      - "Widget Registry"
+      - "Required Permissions"
+      - "Module Federation Entrypoints"
+      - "Widget Search"

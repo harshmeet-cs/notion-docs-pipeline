@@ -1,139 +1,45 @@
-name: Notion Docs — Apply or Rerun
+name: Notion Docs — Apply to Notion
 
 on:
-  issue_comment:
-    types: [created]
+  pull_request:
+    types: [closed]
+    branches: [main]
 
 jobs:
-  # ── Parse the bot command out of the comment ──────────────────────────────
-  parse-command:
-    runs-on: ubuntu-latest
-    outputs:
-      command: ${{ steps.parse.outputs.command }}
-      extra_context: ${{ steps.parse.outputs.extra_context }}
-      commit_sha: ${{ steps.parse.outputs.commit_sha }}
-    steps:
-      - id: parse
-        env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          COMMENT_URL: ${{ github.event.comment.html_url }}
-        run: |
-          set -euo pipefail
-          BODY="$COMMENT_BODY"
-
-          if echo "$BODY" | grep -qE "^/notion-approve"; then
-            echo "command=approve" >> "$GITHUB_OUTPUT"
-          elif echo "$BODY" | grep -qE "^/notion-rerun"; then
-            echo "command=rerun" >> "$GITHUB_OUTPUT"
-            CTX=$(echo "$BODY" | grep -oP 'context="[^"]+"' | sed 's/context="//;s/"$//')
-            echo "extra_context=$CTX" >> "$GITHUB_OUTPUT"
-          elif echo "$BODY" | grep -qE "^/notion-skip"; then
-            echo "command=skip" >> "$GITHUB_OUTPUT"
-          else
-            echo "command=none" >> "$GITHUB_OUTPUT"
-          fi
-
-          # Extract commit SHA from the comment URL
-          # Commit comment URLs look like: .../commit/{sha}#commitcomment-{id}
-          SHA=$(echo "$COMMENT_URL" | grep -oP '/commit/\K[a-f0-9]{40}' || echo "")
-          echo "commit_sha=$SHA" >> "$GITHUB_OUTPUT"
-
-  # ── Guard: only CODEOWNERS / write-access members may approve ─────────────
-  authorize:
-    needs: parse-command
-    if: needs.parse-command.outputs.command == 'approve' || needs.parse-command.outputs.command == 'rerun'
-    runs-on: ubuntu-latest
-    outputs:
-      allowed: ${{ steps.check.outputs.allowed }}
-    steps:
-      - id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ACTOR: ${{ github.event.comment.user.login }}
-          REPO: ${{ github.repository }}
-        run: |
-          PERM=$(gh api repos/$REPO/collaborators/$ACTOR/permission --jq '.permission' 2>/dev/null || echo "none")
-          if [[ "$PERM" == "admin" || "$PERM" == "write" || "$PERM" == "maintain" ]]; then
-            echo "allowed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "allowed=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::$ACTOR does not have write access — command ignored."
-          fi
-
-  # ── Apply approved changes to Notion ──────────────────────────────────────
   apply:
-    needs: [parse-command, authorize]
-    if: needs.parse-command.outputs.command == 'approve' && needs.authorize.outputs.allowed == 'true'
+    # Only fire when a docs/notion-update-* PR is merged (not closed without merge)
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'docs/notion-update-')
     runs-on: ubuntu-latest
     permissions:
-      issues: write
+      issues: write  # post the confirmation commit comment
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Check out the merged PR's head to get notion-changes.md as approved
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
+        run: pip install -q -r scripts/requirements.txt
 
-      - name: Download suggestion artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: suggestion-${{ needs.parse-command.outputs.commit_sha }}
-
-      - name: Apply Notion changes
+      - name: Apply changes to Notion
         env:
           NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMMIT_SHA: ${{ needs.parse-command.outputs.commit_sha }}
+          # Use the source commit SHA (extracted from branch name) for the rollback command
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
         run: python scripts/apply_notion.py
 
       - name: Upload rollback log
         uses: actions/upload-artifact@v4
         with:
-          name: rollback-${{ needs.parse-command.outputs.commit_sha }}
+          name: rollback-${{ github.event.pull_request.head.sha }}
           path: rollback_log.json
           retention-days: 90
-
-  # ── Rerun analysis with extra context ─────────────────────────────────────
-  rerun:
-    needs: [parse-command, authorize]
-    if: needs.parse-command.outputs.command == 'rerun' && needs.authorize.outputs.allowed == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.parse-command.outputs.commit_sha }}
-          fetch-depth: 2
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
-
-      - name: Rerun analysis with extra context
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
-          NOTION_SPACE_PAGE_ID: ${{ secrets.NOTION_SPACE_PAGE_ID }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMMIT_SHA: ${{ needs.parse-command.outputs.commit_sha }}
-          EXTRA_CONTEXT: ${{ needs.parse-command.outputs.extra_context }}
-        run: python scripts/analyze_diff.py
-
-      - name: Upload updated suggestion artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: suggestion-${{ needs.parse-command.outputs.commit_sha }}
-          path: suggestion.json
-          retention-days: 30
-          overwrite: true

@@ -1,6 +1,7 @@
 # Notion Docs Pipeline
 
 Auto-updates Notion documentation pages when code is merged to `main`.
+Inspired by the SFIN team's on-merge docs bot; extended for Notion-native writes.
 
 ## How it works
 
@@ -9,99 +10,116 @@ merge to main
       │
       ▼
 [GHA: notion-docs-suggest]
-  git diff → Claude API → Notion page inventory
-  → posts GitHub commit comment with suggestions
+  reads docs-config.yml → finds Notion pages mapped to changed paths
+  fetches current section content from Notion (for before/after diff)
+  calls Claude once per page with scoped diff
+  writes notion-changes.md with <!-- notion-update --> blocks
+  pushes branch docs/notion-update-{sha} and raises a PR
       │
       ▼
-  human reviews, optionally edits "Suggested replacement" blocks in comment
-      │
-      ├─ /notion-approve       → [GHA: notion-docs-apply]   writes to Notion
-      ├─ /notion-rerun context="..." → reruns Claude with extra guidance
-      └─ /notion-skip          → no changes
-                                      │
-                                      ▼
-                              follow-up comment with rollback instructions
-                                      │
-                              /notion-rollback sha=<sha>  → reverts Notion blocks
+  Human reviews the docs PR — notion-changes.md shows:
+    • Current Notion content  (read-only reference)
+    • Proposed replacement    (editable between <!-- notion-update --> markers)
+
+  ├─ leave inline review comments
+  │       │
+  │       ▼
+  │  [GHA: notion-docs-feedback]
+  │    Claude reads comments → updates notion-changes.md → pushes
+  │    re-requests review from commenter
+  │
+  └─ merge PR
+          │
+          ▼
+     [GHA: notion-docs-apply]
+       parses notion-changes.md
+       applies block-level updates to Notion
+       saves rollback_log.json artifact
+       posts confirmation commit comment with /notion-rollback instructions
 ```
+
+## Rollback
+
+**Bot rollback**: comment `/notion-rollback sha=<head-sha-of-docs-pr>` on any commit in the repo.
+The workflow restores each block from the saved rollback log.
+
+**Manual restore**: Notion page → `...` → **Page history** → restore the version from before the timestamp shown in the confirmation comment.
 
 ## Setup
 
-### 1. Create a Notion integration
+### 1. Configure docs-config.yml
 
-Go to https://www.notion.so/my-integrations → **New integration** → copy the token.
+Edit `docs-config.yml` to map your code paths to Notion pages:
 
-Grant the integration access to the pages you want the pipeline to manage
-(open each page in Notion → `...` → **Connections** → add your integration).
+```yaml
+pages:
+  - page_id: "your-notion-page-id-32-hex-chars"
+    page_title: "My Service Docs"
+    page_url: "https://app.notion.com/p/..."
+    watch_paths:
+      - "src/my-service/"
+    sections:
+      - "API Reference"
+      - "Required Permissions"
+```
 
-### 2. Find your root page ID
+`page_id` is the 32-char hex from the Notion page URL.
 
-Open the Notion page that contains all your doc pages. Copy the last segment
-of the URL — that is the page ID (32 hex chars, with or without dashes).
+### 2. Create a Notion integration
+
+1. Go to https://www.notion.so/my-integrations → **New integration**
+2. Enable **Read**, **Update**, and **Insert** content capabilities
+3. Copy the token (`secret_...`)
+4. Open each Notion page → `...` → **Connections** → add your integration
 
 ### 3. Set GitHub repository secrets
 
 | Secret | Value |
 |--------|-------|
-| `ANTHROPIC_API_KEY` | Anthropic API key from https://console.anthropic.com |
 | `NOTION_API_TOKEN` | Notion integration token (`secret_...`) |
-| `NOTION_SPACE_PAGE_ID` | Root page ID (32-char hex) |
+| `GH_PAT` | GitHub Personal Access Token with `repo` scope — needed to push branches and trigger workflows. Falls back to `GITHUB_TOKEN` but the docs PR may not trigger `notion-docs-apply` in that case. |
+| `ANTHROPIC_API_KEY` | *(Optional)* Anthropic API key. If absent, the pipeline uses the `claude` CLI if available, or mock mode. |
 
-`GITHUB_TOKEN` is provided automatically by Actions — no extra setup needed.
+### 4. (Optional) Enable MOCK_CLAUDE for testing
 
-### 4. Push to `main`
-
-Any push to `main` that touches `src/**` triggers the suggest workflow.
-The pipeline posts a commit comment. Reply with the bot commands to act.
-
-## Bot commands
-
-All commands are replied as comments on the merge commit.
-
-| Command | Effect |
-|---------|--------|
-| `/notion-approve` | Apply the suggestions (or your edited versions) to Notion |
-| `/notion-rerun context="..."` | Ask Claude again with extra guidance; posts a new suggestion comment |
-| `/notion-skip` | Do nothing (closes the loop) |
-| `/notion-rollback sha=<sha>` | Restore Notion blocks to their pre-pipeline state |
-
-Only repository collaborators with **write** access or above can trigger commands.
-
-## Editing suggestions before approving
-
-The bot comment contains `<!-- NOTION_SECTION_START:... -->` and `<!-- NOTION_SECTION_END:... -->`
-markers around the suggested replacement text. Edit the text between those markers
-directly in the GitHub comment, then reply `/notion-approve`. The pipeline reads
-the comment body at approval time, so your edits become the final Notion content.
-
-## Rollback
-
-Two options:
-
-1. **Bot rollback** — reply `/notion-rollback sha=<merge-commit-sha>` on any commit comment.
-   The pipeline restores every block it touched.
-
-2. **Notion native** — open the page → `...` → **Page history** → restore the version
-   from before the timestamp shown in the "Notion Docs Updated" follow-up comment.
-   This works even if the rollback artifact has expired.
+In your repo → **Settings** → **Variables** → add:
+```
+MOCK_CLAUDE = true
+```
+This makes the suggest workflow raise a real docs PR with a mock suggestion (no LLM call). Good for verifying the full GitHub + Notion plumbing before enabling live Claude calls.
 
 ## Local testing
 
 ```sh
-cp .env.example .env   # fill in values
-pip install -r scripts/requirements.txt
+git clone https://github.com/harshmeet-cs/notion-docs-pipeline.git
+cd notion-docs-pipeline
+cp .env.example .env   # fill in NOTION_API_TOKEN, GH_TOKEN, COMMIT_SHA, REPO
 
-# Test the suggest step against the last commit
-export $(cat .env | xargs)
-python scripts/analyze_diff.py
+# Fastest — no LLM, just tests GitHub+Notion plumbing
+MOCK_CLAUDE=true ./test_local.sh
+
+# Real Claude call via claude CLI (no API key needed)
+./test_local.sh
+
+# Real Claude call via Anthropic SDK
+ANTHROPIC_API_KEY=sk-ant-... ./test_local.sh
 ```
+
+## Bot commands
+
+| Command | Where to use | Effect |
+|---------|-------------|--------|
+| Edit `<!-- notion-update -->` blocks | In the docs PR | Change what gets written to Notion |
+| Leave inline review comments | In the docs PR | Claude revises and re-requests review |
+| Merge the docs PR | GitHub | Applies changes to Notion |
+| `/notion-rollback sha=<sha>` | Any commit comment | Restores Notion blocks to pre-pipeline content |
+
+Only repository collaborators with **write** access or above can trigger rollback.
 
 ## Architecture notes
 
-- **Granularity**: updates are block-level (paragraph after a heading), not full-page rewrites.
-  Unrelated sections are never touched.
-- **Idempotent rerun**: `/notion-rerun` posts a new comment and overwrites the
-  `suggestion-{sha}` artifact. The old comment stays for reference.
-- **Authorization**: all bot commands require write-level GitHub collaboration access.
-  Unauthorized replies are silently ignored (workflow skips with a warning).
-- **Artifact retention**: suggestion artifacts kept 30 days; rollback logs kept 90 days.
+- **One Claude call per page** — focused context, better suggestions
+- **Git as intermediate representation** — `notion-changes.md` in the docs PR is the approval surface. Fully diffable, inline-commentable, editable through standard GitHub UI.
+- **Block-level Notion writes** — only the targeted section paragraph is updated; unrelated content is never touched
+- **Rollback is two-layer** — artifact JSON (90 days) + Notion page history (always available)
+- **SFIN pattern** — orchestration script + per-service Claude call + PR-based review loop, adapted for Notion targets instead of in-repo DOCS.md files

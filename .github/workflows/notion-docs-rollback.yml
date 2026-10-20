@@ -6,7 +6,6 @@ on:
 
 jobs:
   rollback:
-    # Only run for /notion-rollback sha=<sha> comments
     if: startsWith(github.event.comment.body, '/notion-rollback')
     runs-on: ubuntu-latest
     permissions:
@@ -20,10 +19,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
+        run: pip install -q -r scripts/requirements.txt
 
       - name: Authorize commenter
-        id: auth
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.event.comment.user.login }}
@@ -35,19 +33,19 @@ jobs:
             exit 1
           fi
 
-      - name: Parse target SHA from command
+      - name: Parse SHA from command
         id: parse
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           SHA=$(echo "$COMMENT_BODY" | grep -oP 'sha=\K[a-f0-9]+' || echo "")
           if [[ -z "$SHA" ]]; then
-            echo "::error::No sha= found in /notion-rollback command. Usage: /notion-rollback sha=<commit-sha>"
+            echo "::error::No sha= found. Usage: /notion-rollback sha=<commit-sha>"
             exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Download rollback log artifact
+      - name: Download rollback log
         uses: actions/download-artifact@v4
         with:
           name: rollback-${{ steps.parse.outputs.sha }}

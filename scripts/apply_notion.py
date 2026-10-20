@@ -1,19 +1,12 @@
 """
-Phase 4: Parse the human-reviewed GitHub comment and apply the approved changes to Notion.
+Read notion-changes.md from the merged docs PR and apply block-level updates to Notion.
 
-The bot's original comment contains fenced blocks delimited by:
-  <!-- NOTION_SECTION_START:{pageId}:{heading} -->
-  ...content...
-  <!-- NOTION_SECTION_END:{pageId}:{heading} -->
+Triggered when a docs/notion-update-* PR is merged.
 
-If the human edited the comment before approving, the content between the markers
-reflects their edits — that is what gets written to Notion.
-
-Environment variables (set by GitHub Actions):
+Environment variables:
   NOTION_API_TOKEN  - Notion integration token
   GH_TOKEN          - GitHub token
-  COMMENT_ID        - The ID of the /notion-approve reply comment (used to find the commit)
-  COMMIT_SHA        - The merge commit SHA
+  COMMIT_SHA        - The HEAD SHA of the merged docs PR
   REPO              - "owner/repo"
 """
 
@@ -22,122 +15,80 @@ import os
 import re
 import textwrap
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 from notion_client import Client as NotionClient
 
 GITHUB_API = "https://api.github.com"
 
-
-def fetch_commit_comments(repo: str, commit_sha: str, token: str) -> list[dict]:
-    url = f"{GITHUB_API}/repos/{repo}/commits/{commit_sha}/comments"
-    response = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-        timeout=30,
-    )
-    response.raise_for_status()
-    return response.json()
+BLOCK_RE = re.compile(
+    r"<!-- notion-update: (?P<meta>\{[^}]+\}) -->\n(?P<content>.*?)\n<!-- /notion-update -->",
+    re.DOTALL,
+)
 
 
-def find_bot_comment(comments: list[dict], bot_comment_id: int) -> dict | None:
-    for comment in comments:
-        if comment["id"] == bot_comment_id:
-            return comment
-    return None
+def parse_changes(md: str) -> list[dict]:
+    updates = []
+    for match in BLOCK_RE.finditer(md):
+        meta = json.loads(match.group("meta"))
+        updates.append({
+            "page_id": meta["pageId"],
+            "page_title": meta["pageTitle"],
+            "section": meta["section"],
+            "content": match.group("content").strip(),
+        })
+    return updates
 
 
-def parse_sections_from_comment(body: str) -> list[dict]:
-    """
-    Extract all NOTION_SECTION blocks from the comment body.
-    Returns list of {page_id, heading, content}.
-    """
-    pattern = re.compile(
-        r"<!-- NOTION_SECTION_START:(?P<page_id>[^:]+):(?P<heading>[^\-]+) -->\n"
-        r"(?P<content>.*?)\n"
-        r"<!-- NOTION_SECTION_END:[^>]+ -->",
-        re.DOTALL,
-    )
-    sections = []
-    for match in pattern.finditer(body):
-        sections.append(
-            {
-                "page_id": match.group("page_id").strip(),
-                "heading": match.group("heading").strip(),
-                "content": match.group("content").strip(),
-            }
-        )
-    return sections
+def get_blocks(notion: NotionClient, page_id: str) -> list[dict]:
+    return notion.blocks.children.list(block_id=page_id).get("results", [])
 
 
-def get_page_blocks(notion: NotionClient, page_id: str) -> list[dict]:
-    response = notion.blocks.children.list(block_id=page_id)
-    return response.get("results", [])
-
-
-def find_heading_block(blocks: list[dict], heading_text: str) -> dict | None:
-    """Find a heading block whose plain-text matches heading_text (case-insensitive)."""
+def find_heading_and_next(blocks: list[dict], heading: str) -> tuple[dict | None, dict | None]:
+    found_heading = None
     for block in blocks:
-        block_type = block.get("type", "")
-        if block_type not in ("heading_1", "heading_2", "heading_3"):
-            continue
-        rich_text = block.get(block_type, {}).get("rich_text", [])
-        plain = "".join(rt.get("plain_text", "") for rt in rich_text)
-        if plain.strip().lower() == heading_text.lower():
-            return block
-    return None
-
-
-def get_next_paragraph_block(blocks: list[dict], heading_block_id: str) -> dict | None:
-    """Return the first non-heading block immediately after the given heading block."""
-    found = False
-    for block in blocks:
-        if found:
-            if block.get("type") not in ("heading_1", "heading_2", "heading_3"):
-                return block
-            break
-        if block["id"] == heading_block_id:
-            found = True
-    return None
+        btype = block.get("type", "")
+        if btype in ("heading_1", "heading_2", "heading_3"):
+            plain = "".join(
+                rt.get("plain_text", "")
+                for rt in block.get(btype, {}).get("rich_text", [])
+            )
+            if plain.strip().lower() == heading.lower():
+                found_heading = block
+                continue
+            elif found_heading:
+                return found_heading, None
+        elif found_heading:
+            return found_heading, block
+    return found_heading, None
 
 
 def read_block_text(block: dict) -> str:
-    block_type = block.get("type", "")
-    rich_text = block.get(block_type, {}).get("rich_text", [])
-    return "".join(rt.get("plain_text", "") for rt in rich_text)
-
-
-def update_paragraph_block(notion: NotionClient, block_id: str, new_text: str) -> None:
-    notion.blocks.update(
-        block_id=block_id,
-        paragraph={
-            "rich_text": [{"type": "text", "text": {"content": new_text}}]
-        },
+    btype = block.get("type", "")
+    return "".join(
+        rt.get("plain_text", "")
+        for rt in block.get(btype, {}).get("rich_text", [])
     )
 
 
-def append_paragraph_block(notion: NotionClient, page_id: str, after_block_id: str, new_text: str) -> str:
-    """Append a new paragraph block after after_block_id. Returns new block ID."""
-    response = notion.blocks.children.append(
+def write_paragraph(notion: NotionClient, page_id: str, block_id: str | None, after_id: str, text: str) -> str:
+    """Update existing block or insert a new one. Returns the block ID written."""
+    rich = [{"type": "text", "text": {"content": text}}]
+    if block_id:
+        notion.blocks.update(block_id=block_id, paragraph={"rich_text": rich})
+        return block_id
+    result = notion.blocks.children.append(
         block_id=page_id,
-        children=[
-            {
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": new_text}}]
-                },
-            }
-        ],
-        after=after_block_id,
+        children=[{"object": "block", "type": "paragraph", "paragraph": {"rich_text": rich}}],
+        after=after_id,
     )
-    return response["results"][0]["id"]
+    return result["results"][0]["id"]
 
 
-def post_commit_comment(repo: str, commit_sha: str, body: str, token: str) -> None:
-    url = f"{GITHUB_API}/repos/{repo}/commits/{commit_sha}/comments"
+def post_commit_comment(repo: str, sha: str, body: str, token: str) -> None:
     requests.post(
-        url,
+        f"{GITHUB_API}/repos/{repo}/commits/{sha}/comments",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         json={"body": body},
         timeout=30,
@@ -149,101 +100,70 @@ def main() -> None:
     gh_token = os.environ["GH_TOKEN"]
     commit_sha = os.environ["COMMIT_SHA"]
     repo = os.environ["REPO"]
-    bot_comment_id = int(os.environ.get("BOT_COMMENT_ID", "0"))
 
-    with open("suggestion.json") as f:
-        artifact = json.load(f)
+    md = Path("notion-changes.md").read_text()
+    updates = parse_changes(md)
+    print(f"Parsed {len(updates)} update(s) from notion-changes.md.")
 
-    bot_comment_id = artifact["bot_comment_id"]
-
-    print(f"Fetching commit comments for {commit_sha[:8]}...")
-    comments = fetch_commit_comments(repo, commit_sha, gh_token)
-    bot_comment = find_bot_comment(comments, bot_comment_id)
-
-    if not bot_comment:
-        print(f"ERROR: Could not find bot comment {bot_comment_id}.")
-        raise SystemExit(1)
-
-    print("Parsing approved sections from comment...")
-    sections = parse_sections_from_comment(bot_comment["body"])
-    print(f"Found {len(sections)} section(s) to apply.")
-
-    if not sections:
-        print("No sections found — nothing to apply.")
+    if not updates:
+        print("Nothing to apply.")
         return
 
     notion = NotionClient(auth=notion_token)
-    rollback_log = []
     applied_at = datetime.now(timezone.utc).isoformat()
+    rollback_entries = []
 
-    for section in sections:
-        page_id = section["page_id"]
-        heading = section["heading"]
-        new_content = section["content"]
+    for update in updates:
+        page_id, section, new_text = update["page_id"], update["section"], update["content"]
+        print(f"  '{section}' on {page_id[:8]}…")
 
-        print(f"  Updating page {page_id} / section '{heading}'...")
-        blocks = get_page_blocks(notion, page_id)
-        heading_block = find_heading_block(blocks, heading)
+        blocks = get_blocks(notion, page_id)
+        heading_block, next_block = find_heading_and_next(blocks, section)
 
-        if heading_block:
-            target_block = get_next_paragraph_block(blocks, heading_block["id"])
-            if target_block:
-                old_content = read_block_text(target_block)
-                update_paragraph_block(notion, target_block["id"], new_content)
-                rollback_log.append(
-                    {
-                        "page_id": page_id,
-                        "block_id": target_block["id"],
-                        "old_content": old_content,
-                        "new_content": new_content,
-                        "applied_at": applied_at,
-                    }
-                )
-                print(f"    Updated block {target_block['id']}.")
-            else:
-                # No paragraph after the heading — append one
-                new_block_id = append_paragraph_block(notion, page_id, heading_block["id"], new_content)
-                rollback_log.append(
-                    {
-                        "page_id": page_id,
-                        "block_id": new_block_id,
-                        "old_content": "",
-                        "new_content": new_content,
-                        "applied_at": applied_at,
-                    }
-                )
-                print(f"    Appended new block {new_block_id}.")
-        else:
-            print(f"    WARNING: Heading '{heading}' not found on page {page_id} — skipping.")
+        if not heading_block:
+            print(f"    WARNING: heading '{section}' not found — skipping.")
+            continue
 
-    with open("rollback_log.json", "w") as f:
-        json.dump({"commit_sha": commit_sha, "applied_at": applied_at, "entries": rollback_log}, f, indent=2)
-    print("Saved rollback_log.json.")
+        old_text = read_block_text(next_block) if next_block else ""
+        written_id = write_paragraph(
+            notion, page_id,
+            block_id=next_block["id"] if next_block else None,
+            after_id=heading_block["id"],
+            text=new_text,
+        )
+        action = "updated" if next_block else "inserted"
+        print(f"    {action} block {written_id[:8]}.")
+        rollback_entries.append({
+            "page_id": page_id,
+            "block_id": written_id,
+            "old_content": old_text,
+            "new_content": new_text,
+            "applied_at": applied_at,
+            "action": action,
+        })
 
-    # Build rollback table for follow-up comment
-    table_rows = "\n".join(
-        f"| {entry['page_id'][:8]}… | block `{entry['block_id'][:8]}…` |"
-        for entry in rollback_log
+    Path("rollback_log.json").write_text(
+        json.dumps({"commit_sha": commit_sha, "applied_at": applied_at, "entries": rollback_entries}, indent=2)
     )
 
-    follow_up = textwrap.dedent(f"""\
+    rows = "\n".join(
+        f"| {e['page_id'][:8]}… | {e['section']} | {e['action']} |"
+        for e in rollback_entries
+    )
+    comment = textwrap.dedent(f"""\
         ## Notion Docs Updated
 
-        Applied {len(rollback_log)} block update(s) at `{applied_at}`.
+        Applied {len(rollback_entries)} update(s) at `{applied_at}`.
 
-        | Page | Block |
-        |------|-------|
-        {table_rows}
+        | Page | Section | Action |
+        |------|---------|--------|
+        {rows}
 
-        **To rollback all changes**, reply:
-        > `/notion-rollback sha={commit_sha}`
-
-        **Manual restore**: open each Notion page, click `...` → **Page history**, and restore the \
-        version from before `{applied_at}`.
+        **Rollback**: comment `/notion-rollback sha={commit_sha}` on any commit.
+        **Manual restore**: open the Notion page → `...` → **Page history** → restore version from before `{applied_at}`.
     """)
-
-    post_commit_comment(repo, commit_sha, follow_up, gh_token)
-    print("Posted follow-up comment with rollback instructions.")
+    post_commit_comment(repo, commit_sha, comment, gh_token)
+    print("Done. Posted confirmation comment.")
 
 
 if __name__ == "__main__":

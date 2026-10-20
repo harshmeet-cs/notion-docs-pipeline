@@ -3,9 +3,7 @@ name: Notion Docs — Suggest Updates
 on:
   push:
     branches: [main]
-    paths:
-      - "src/**"
-  # Allow manual trigger with extra context
+  # Manual trigger — useful for reruns with extra context
   workflow_dispatch:
     inputs:
       commit_sha:
@@ -19,35 +17,32 @@ jobs:
   suggest:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      # Commit comments use the issues write permission
-      issues: write
+      contents: write       # push the docs/notion-update-* branch
+      pull-requests: write  # raise the docs PR
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          # Use a PAT so the pushed branch can trigger pull_request events.
+          # Falls back to GITHUB_TOKEN if GH_PAT is not set (PR trigger may not fire in that case).
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
+        run: pip install -q -r scripts/requirements.txt
 
-      - name: Analyze diff and post suggestions
+      - name: Analyze diff and raise docs PR
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
-          NOTION_SPACE_PAGE_ID: ${{ secrets.NOTION_SPACE_PAGE_ID }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ inputs.commit_sha || github.sha }}
+          REPO: ${{ github.repository }}
+          BASE_BRANCH: main
           EXTRA_CONTEXT: ${{ inputs.extra_context || '' }}
+          # Set MOCK_CLAUDE=true in repo variables to test without an LLM
+          MOCK_CLAUDE: ${{ vars.MOCK_CLAUDE || 'false' }}
         run: python scripts/analyze_diff.py
-
-      - name: Upload suggestion artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: suggestion-${{ inputs.commit_sha || github.sha }}
-          path: suggestion.json
-          retention-days: 30

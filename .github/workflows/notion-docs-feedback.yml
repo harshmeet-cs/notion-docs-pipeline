@@ -1,0 +1,38 @@
+name: Notion Docs — Address Review Feedback
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  handle-feedback:
+    # Only run on docs PRs when reviewer requests changes or leaves comments
+    if: >
+      startsWith(github.event.pull_request.head.ref, 'docs/notion-update-') &&
+      github.event.review.state != 'approved'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # push the updated notion-changes.md
+      pull-requests: write  # re-request review
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -q -r scripts/requirements.txt
+
+      - name: Address review feedback
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: python scripts/handle_feedback.py
