@@ -31,12 +31,12 @@ export const registry = new WidgetRegistry();
 registry.register({
   id: "tp-locates",
   bundle: "@cs/studio-locates",
-  version: "3.1.0",
+  version: "3.2.0",
   owner: "Studio FE",
-  requiredPermissions: ["locates:view", "locates:export", "locates:approve"],
+  requiredPermissions: ["locates:view", "locates:export", "locates:approve", "locates:bulk-export"],
   searchMeta: {
-    keywords: ["locate", "borrow", "short", "availability", "export", "csv", "approve", "workflow"],
-    description: "Submit, track, approve, and export securities locate requests",
+    keywords: ["locate", "borrow", "short", "availability", "export", "csv", "approve", "workflow", "bulk"],
+    description: "Submit, track, approve, and bulk-export securities locate requests",
   },
 });
 
@@ -55,11 +55,11 @@ registry.register({
 registry.register({
   id: "tp-risk",
   bundle: "@cs/studio-risk",
-  version: "3.1.2",
+  version: "4.0.0",
   owner: "Studio FE",
-  requiredPermissions: ["risk:view"],
+  requiredPermissions: ["risk:view", "risk:scenarios"],
   searchMeta: {
-    keywords: ["risk", "exposure", "greeks", "pnl"],
-    description: "Portfolio risk and P&L dashboard",
+    keywords: ["risk", "exposure", "greeks", "pnl", "scenarios", "stress-test"],
+    description: "Portfolio risk, P&L, and scenario analysis dashboard",
   },
 });
