@@ -7,16 +7,20 @@
  * Permissions required:
  *   locates:view    — render the widget
  *   locates:submit  — submit locate requests
- *   locates:export  — NEW in v3: download locate history as CSV
+ *   locates:export  — download locate history as CSV
+ *   locates:approve — NEW in v3.1: approve pending locate requests (prime brokerage only)
  */
 import React from "react";
 import { useLocatesStore } from "./store/locatesStore";
 import { LocatesTable } from "./components/LocatesTable";
 import { LocatesSubmitForm } from "./components/LocatesSubmitForm";
 import { LocatesExportButton } from "./components/LocatesExportButton";
+import { LocatesApprovalQueue } from "./components/LocatesApprovalQueue";
+import { usePermissions } from "@cs/studio-platform/permissions";
 
 export function LocatesWidget() {
-  const { locates, isLoading } = useLocatesStore();
+  const { locates, pendingApprovals, isLoading } = useLocatesStore();
+  const { hasPermission } = usePermissions();
 
   return (
     <div className="locates-widget">
@@ -24,6 +28,9 @@ export function LocatesWidget() {
         <LocatesSubmitForm />
         <LocatesExportButton locates={locates} />
       </div>
+      {hasPermission("locates:approve") && (
+        <LocatesApprovalQueue pendingApprovals={pendingApprovals} />
+      )}
       <LocatesTable locates={locates} isLoading={isLoading} />
     </div>
   );

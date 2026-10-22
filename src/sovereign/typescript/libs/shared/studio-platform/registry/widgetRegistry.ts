@@ -31,12 +31,12 @@ export const registry = new WidgetRegistry();
 registry.register({
   id: "tp-locates",
   bundle: "@cs/studio-locates",
-  version: "3.0.0",
+  version: "3.1.0",
   owner: "Studio FE",
-  requiredPermissions: ["locates:view", "locates:export"],
+  requiredPermissions: ["locates:view", "locates:export", "locates:approve"],
   searchMeta: {
-    keywords: ["locate", "borrow", "short", "availability", "export", "csv"],
-    description: "Submit, track, and export securities locate requests",
+    keywords: ["locate", "borrow", "short", "availability", "export", "csv", "approve", "workflow"],
+    description: "Submit, track, approve, and export securities locate requests",
   },
 });
 
