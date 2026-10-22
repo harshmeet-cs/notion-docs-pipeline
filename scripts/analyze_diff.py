@@ -227,7 +227,8 @@ def push_and_raise_pr(branch: str, base: str, repo: str, commit_sha: str, commit
     subprocess.run(["git", "checkout", "-b", branch], check=True)
     subprocess.run(["git", "add", "notion-changes.md"], check=True)
     subprocess.run(["git", "commit", "-m", f"docs: Notion update for {commit_sha[:8]}"], check=True)
-    subprocess.run(["git", "push", "origin", branch], check=True)
+    # Force-push in case a previous partial run left a stale remote branch at this name.
+    subprocess.run(["git", "push", "--force", "origin", branch], check=True)
 
     body = (
         f"Auto-generated Notion documentation update for merge `{commit_sha[:8]}`.\n\n"
