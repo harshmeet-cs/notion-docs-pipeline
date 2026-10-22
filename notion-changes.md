@@ -2,8 +2,8 @@
 
 > **Review the proposed updates below, edit if needed, then merge this PR to apply them to Notion.**
 
-**Commit**: `f8c6c204` — Merge pull request #10 from harshmeet-cs/feat/risk-v4-scenario-analysis  
-**Generated**: 2026-10-22T10:03:41Z
+**Commit**: `8a2291b9` — Merge pull request #13 from harshmeet-cs/feat/locates-websocket-streaming  
+**Generated**: 2026-10-22T10:12:44Z
 
 ---
 
@@ -13,7 +13,7 @@
 
 **Current content in Notion:**
 ```
-[MOCK — edit before merging] Updated Widget Registry content based on the latest code changes.
+tp-locates @cs/studio-locates v3.2.0 (Studio FE) — tp-blotter @cs/studio-blotter v1.9.0 (Studio FE) — tp-risk @cs/studio-risk v4.0.0 (Studio FE)
 ```
 
 **Proposed replacement** *(edit between the markers, then merge)*:
