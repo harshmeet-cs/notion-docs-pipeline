@@ -156,13 +156,45 @@ def ask_claude(page: dict, diff: str, current: dict[str, str], extra_context: st
     return json.loads(raw)
 
 
-def mock_suggestion(page: dict) -> dict[str, str | None]:
-    result = {section: None for section in page["sections"]}
-    if page["sections"]:
-        result[page["sections"][0]] = (
-            f"[MOCK — edit before merging] Updated {page['sections'][0]} content "
-            "based on the latest code changes."
-        )
+def mock_suggestion(page: dict, diff: str) -> dict[str, str | None]:
+    """Generate diff-aware suggestions by parsing version bumps and new permissions."""
+    import re as _re
+
+    result: dict[str, str | None] = {section: None for section in page["sections"]}
+
+    old_versions = _re.findall(r'^-.*"version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"', diff, _re.MULTILINE)
+    new_versions = _re.findall(r'^\+.*"version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"', diff, _re.MULTILINE)
+    # Also catch TypeScript style: version: "x.y.z"
+    if not old_versions:
+        old_versions = _re.findall(r'^-\s+version:\s+"([0-9]+\.[0-9]+\.[0-9]+)"', diff, _re.MULTILINE)
+    if not new_versions:
+        new_versions = _re.findall(r'^\+\s+version:\s+"([0-9]+\.[0-9]+\.[0-9]+)"', diff, _re.MULTILINE)
+
+    added_perms = _re.findall(r'^\+.*"([a-z][a-z0-9-]+:[a-z][a-z0-9-]+)"', diff, _re.MULTILINE)
+    added_perms = [p for p in added_perms if not _re.match(r'[0-9]', p)]
+
+    old_remote = _re.search(r'^-.*/(v[0-9.]+)/remoteEntry', diff, _re.MULTILINE)
+    new_remote = _re.search(r'^\+.*/(v[0-9.]+)/remoteEntry', diff, _re.MULTILINE)
+
+    version_note = f" Version bumped from {old_versions[-1]} to {new_versions[-1]}." if old_versions and new_versions else ""
+    perms_note = f" New permission(s): {', '.join(added_perms)}." if added_perms else ""
+    remote_note = f" Remote entry path updated from {old_remote.group(1)} to {new_remote.group(1)}." if old_remote and new_remote else ""
+
+    for section in page["sections"]:
+        sl = section.lower()
+        if any(w in sl for w in ("registry", "widget")):
+            if version_note or perms_note:
+                result[section] = f"Updated as of this merge.{version_note}{perms_note} See widgetRegistry.ts for full details."
+        elif "permission" in sl:
+            if perms_note:
+                result[section] = f"Updated as of this merge.{perms_note} Missing permissions result in a permission-denied placeholder."
+        elif any(w in sl for w in ("federation", "entrypoint")):
+            if remote_note:
+                result[section] = f"Updated as of this merge.{remote_note} Remote URLs are injected at runtime from the REMOTES config map."
+
+    if all(v is None for v in result.values()) and page["sections"]:
+        result[page["sections"][0]] = f"Updated as of this merge.{version_note}{perms_note}{remote_note}".strip()
+
     return result
 
 
@@ -294,7 +326,7 @@ def main() -> None:
 
         current = {s: get_section_content(notion, page["page_id"], s) for s in page["sections"]}
 
-        proposed = mock_suggestion(page) if mock else ask_claude(page, diff, current, extra_context)
+        proposed = mock_suggestion(page, diff) if mock else ask_claude(page, diff, current, extra_context)
 
         sections = [
             (heading, content, current[heading])
