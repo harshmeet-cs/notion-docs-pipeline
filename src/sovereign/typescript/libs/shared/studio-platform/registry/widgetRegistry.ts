@@ -55,11 +55,11 @@ registry.register({
 registry.register({
   id: "tp-risk",
   bundle: "@cs/studio-risk",
-  version: "4.0.0",
+  version: "4.1.0",
   owner: "Studio FE",
-  requiredPermissions: ["risk:view", "risk:scenarios"],
+  requiredPermissions: ["risk:view", "risk:scenarios", "risk:export"],
   searchMeta: {
-    keywords: ["risk", "exposure", "greeks", "pnl", "scenarios", "stress-test"],
-    description: "Portfolio risk, P&L, and scenario analysis dashboard",
+    keywords: ["risk", "exposure", "greeks", "pnl", "scenarios", "stress-test", "export", "report"],
+    description: "Portfolio risk, P&L, scenario analysis, and reporting dashboard",
   },
 });

@@ -9,7 +9,7 @@
  *   locates:submit  — submit locate requests
  *   locates:export  — download locate history as CSV
  *   locates:approve     — approve pending locate requests (prime brokerage only)
- *   locates:bulk-export — NEW in v3.2: schedule overnight bulk CSV exports via shared worker
+ *   locates:bulk-export — schedule overnight bulk CSV exports via shared worker
  */
 import React from "react";
 import { useLocatesStore } from "./store/locatesStore";

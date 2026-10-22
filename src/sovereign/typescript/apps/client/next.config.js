@@ -15,8 +15,8 @@ const nextConfig = {
           remotes: {
             "studio-locates": `studio-locates@[window.REMOTES.locates]/v3/remoteEntry.js`,
             "studio-blotter": `studio-blotter@[window.REMOTES.blotter]/remoteEntry.js`,
-            // tp-risk v4: versioned path for cache-busting
-            "studio-risk": `studio-risk@[window.REMOTES.risk]/v4/remoteEntry.js`,
+            // tp-risk v4.1: versioned path for cache-busting
+            "studio-risk": `studio-risk@[window.REMOTES.risk]/v4.1/remoteEntry.js`,
           },
           shared: {
             react: { singleton: true, requiredVersion: "^18.0.0" },
