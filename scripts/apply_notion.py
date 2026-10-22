@@ -135,6 +135,7 @@ def main() -> None:
         print(f"    {action} block {written_id[:8]}.")
         rollback_entries.append({
             "page_id": page_id,
+            "section": section,
             "block_id": written_id,
             "old_content": old_text,
             "new_content": new_text,
