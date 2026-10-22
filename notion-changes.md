@@ -2,8 +2,8 @@
 
 > **Review the proposed updates below, edit if needed, then merge this PR to apply them to Notion.**
 
-**Commit**: `e7d29259` — Merge pull request #7 from harshmeet-cs/feat/locates-approval-workflow  
-**Generated**: 2026-10-22T09:51:14Z
+**Commit**: `f8c6c204` — Merge pull request #10 from harshmeet-cs/feat/risk-v4-scenario-analysis  
+**Generated**: 2026-10-22T10:03:41Z
 
 ---
 
@@ -13,7 +13,7 @@
 
 **Current content in Notion:**
 ```
-(could not fetch: Could not find block with ID: 4011d2a6-e551-81ec-bcc3-ef7d25af0d7b. Make sure the relevant pages and databases are shared with your integration "My connection claude".)
+[MOCK — edit before merging] Updated Widget Registry content based on the latest code changes.
 ```
 
 **Proposed replacement** *(edit between the markers, then merge)*:
