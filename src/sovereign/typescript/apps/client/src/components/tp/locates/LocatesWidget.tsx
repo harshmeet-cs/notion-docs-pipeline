@@ -10,6 +10,7 @@
  *   locates:export  — download locate history as CSV
  *   locates:approve     — approve pending locate requests (prime brokerage only)
  *   locates:bulk-export — schedule overnight bulk CSV exports via shared worker
+ *   locates:stream     — NEW in v3.3: receive real-time locate status updates via WebSocket
  */
 import React from "react";
 import { useLocatesStore } from "./store/locatesStore";
