@@ -12,10 +12,6 @@ on:
       extra_context:
         description: "Extra guidance for Claude (e.g. 'Also update the permissions matrix')"
         required: false
-      force_run:
-        description: "Process all pages in docs-config.yml regardless of changed files (useful for demos/reruns)"
-        type: boolean
-        default: false
 
 jobs:
   suggest:
@@ -49,5 +45,4 @@ jobs:
           EXTRA_CONTEXT: ${{ inputs.extra_context || '' }}
           # Set MOCK_CLAUDE=true in repo variables to test without an LLM
           MOCK_CLAUDE: ${{ vars.MOCK_CLAUDE || 'false' }}
-          FORCE_RUN: ${{ inputs.force_run || 'false' }}
         run: python scripts/analyze_diff.py

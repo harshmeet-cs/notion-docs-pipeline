@@ -23,7 +23,6 @@ Environment variables:
   BASE_BRANCH        - Base branch for the docs PR (default: main)
   EXTRA_CONTEXT      - Optional extra instructions (from a workflow_dispatch input)
   MOCK_CLAUDE        - Set to "true" to skip LLM
-  FORCE_RUN          - Set to "true" to process all pages regardless of changed files
 """
 
 import json
@@ -268,7 +267,6 @@ def main() -> None:
     base_branch = os.environ.get("BASE_BRANCH", "main")
     extra_context = os.environ.get("EXTRA_CONTEXT", "")
     mock = os.environ.get("MOCK_CLAUDE", "").lower() == "true"
-    force_run = os.environ.get("FORCE_RUN", "").lower() == "true"
 
     config = yaml.safe_load(Path("docs-config.yml").read_text())
     changed_files = get_changed_files()
@@ -277,8 +275,6 @@ def main() -> None:
 
     print(f"Commit: {commit_sha[:8]} — {commit_msg}")
     print(f"Changed files ({len(changed_files)}): {changed_files}")
-    if force_run:
-        print("FORCE_RUN=true — processing all pages regardless of changed files.")
 
     notion = NotionClient(auth=notion_token)
     page_updates = []
@@ -288,12 +284,9 @@ def main() -> None:
             f for f in changed_files
             if any(f.startswith(wp.rstrip("/")) for wp in page["watch_paths"])
         ]
-        if not matched and not force_run:
+        if not matched:
             print(f"Skipping '{page['page_title']}' — no matching files.")
             continue
-        if not matched and force_run:
-            # Use all watch_paths as the synthetic "changed" scope
-            matched = list(page["watch_paths"])
 
         print(f"\nProcessing '{page['page_title']}' ({len(matched)} matched files)...")
         diff = get_scoped_diff(matched)
