@@ -8,13 +8,15 @@
  *   locates:view    — render the widget
  *   locates:submit  — submit locate requests
  *   locates:export  — download locate history as CSV
- *   locates:approve — NEW in v3.1: approve pending locate requests (prime brokerage only)
+ *   locates:approve     — approve pending locate requests (prime brokerage only)
+ *   locates:bulk-export — NEW in v3.2: schedule overnight bulk CSV exports via shared worker
  */
 import React from "react";
 import { useLocatesStore } from "./store/locatesStore";
 import { LocatesTable } from "./components/LocatesTable";
 import { LocatesSubmitForm } from "./components/LocatesSubmitForm";
 import { LocatesExportButton } from "./components/LocatesExportButton";
+import { LocatesBulkExportScheduler } from "./components/LocatesBulkExportScheduler";
 import { LocatesApprovalQueue } from "./components/LocatesApprovalQueue";
 import { usePermissions } from "@cs/studio-platform/permissions";
 
@@ -27,6 +29,9 @@ export function LocatesWidget() {
       <div className="locates-widget__toolbar">
         <LocatesSubmitForm />
         <LocatesExportButton locates={locates} />
+        {hasPermission("locates:bulk-export") && (
+          <LocatesBulkExportScheduler />
+        )}
       </div>
       {hasPermission("locates:approve") && (
         <LocatesApprovalQueue pendingApprovals={pendingApprovals} />
