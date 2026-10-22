@@ -44,17 +44,17 @@ NOTION_UPDATE_RE_CLOSE = "<!-- /notion-update -->"
 
 # ── Git helpers ──────────────────────────────────────────────────────────────
 
-def get_changed_files() -> list[str]:
+def get_changed_files(commit_sha: str) -> list[str]:
     result = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD~1", "HEAD"],
+        ["git", "diff", "--name-only", f"{commit_sha}~1", commit_sha],
         capture_output=True, text=True,
     )
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def get_scoped_diff(file_paths: list[str]) -> str:
+def get_scoped_diff(file_paths: list[str], commit_sha: str) -> str:
     result = subprocess.run(
-        ["git", "diff", "HEAD~1", "HEAD", "--"] + file_paths,
+        ["git", "diff", f"{commit_sha}~1", commit_sha, "--"] + file_paths,
         capture_output=True, text=True,
     )
     diff = result.stdout.strip()
@@ -63,9 +63,9 @@ def get_scoped_diff(file_paths: list[str]) -> str:
     return diff
 
 
-def get_commit_message() -> str:
+def get_commit_message(commit_sha: str) -> str:
     result = subprocess.run(
-        ["git", "log", "-1", "--pretty=%s"],
+        ["git", "log", "-1", "--pretty=%s", commit_sha],
         capture_output=True, text=True,
     )
     return result.stdout.strip()
@@ -270,8 +270,8 @@ def main() -> None:
     mock = os.environ.get("MOCK_CLAUDE", "").lower() == "true"
 
     config = yaml.safe_load(Path("docs-config.yml").read_text())
-    changed_files = get_changed_files()
-    commit_msg = get_commit_message()
+    changed_files = get_changed_files(commit_sha)
+    commit_msg = get_commit_message(commit_sha)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     print(f"Commit: {commit_sha[:8]} — {commit_msg}")
@@ -290,7 +290,7 @@ def main() -> None:
             continue
 
         print(f"\nProcessing '{page['page_title']}' ({len(matched)} matched files)...")
-        diff = get_scoped_diff(matched)
+        diff = get_scoped_diff(matched, commit_sha)
 
         current = {s: get_section_content(notion, page["page_id"], s) for s in page["sections"]}
 
