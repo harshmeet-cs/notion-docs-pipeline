@@ -13,11 +13,11 @@ const nextConfig = {
         new ModuleFederationPlugin({
           name: "studio_client",
           remotes: {
-            // v3.3: versioned path for cache-busting
-            "studio-locates": `studio-locates@[window.REMOTES.locates]/v3.3/remoteEntry.js`,
+            // v3.4: versioned path for cache-busting
+            "studio-locates": `studio-locates@[window.REMOTES.locates]/v3.4/remoteEntry.js`,
             "studio-blotter": `studio-blotter@[window.REMOTES.blotter]/remoteEntry.js`,
-            // tp-risk v4.1: versioned path for cache-busting
-            "studio-risk": `studio-risk@[window.REMOTES.risk]/v4.1/remoteEntry.js`,
+            // tp-risk v4.2: versioned path for cache-busting
+            "studio-risk": `studio-risk@[window.REMOTES.risk]/v4.2/remoteEntry.js`,
           },
           shared: {
             react: { singleton: true, requiredVersion: "^18.0.0" },

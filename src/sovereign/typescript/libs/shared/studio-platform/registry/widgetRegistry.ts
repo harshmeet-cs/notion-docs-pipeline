@@ -31,9 +31,9 @@ export const registry = new WidgetRegistry();
 registry.register({
   id: "tp-locates",
   bundle: "@cs/studio-locates",
-  version: "3.3.0",
+  version: "3.4.0",
   owner: "Studio FE",
-  requiredPermissions: ["locates:view", "locates:export", "locates:approve", "locates:bulk-export", "locates:stream"],
+  requiredPermissions: ["locates:view", "locates:export", "locates:approve", "locates:bulk-export", "locates:stream", "locates:bulk-approve"],
   searchMeta: {
     keywords: ["locate", "borrow", "short", "availability", "export", "csv", "approve", "workflow", "bulk", "live", "stream"],
     description: "Submit, track, approve, bulk-export, and live-stream securities locate requests",
@@ -55,9 +55,9 @@ registry.register({
 registry.register({
   id: "tp-risk",
   bundle: "@cs/studio-risk",
-  version: "4.1.0",
+  version: "4.2.0",
   owner: "Studio FE",
-  requiredPermissions: ["risk:view", "risk:scenarios", "risk:export"],
+  requiredPermissions: ["risk:view", "risk:scenarios", "risk:export", "risk:pdf-export"],
   searchMeta: {
     keywords: ["risk", "exposure", "greeks", "pnl", "scenarios", "stress-test", "export", "report"],
     description: "Portfolio risk, P&L, scenario analysis, and reporting dashboard",
