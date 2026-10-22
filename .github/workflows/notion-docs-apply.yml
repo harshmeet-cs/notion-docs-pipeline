@@ -13,7 +13,8 @@ jobs:
       startsWith(github.event.pull_request.head.ref, 'docs/notion-update-')
     runs-on: ubuntu-latest
     permissions:
-      issues: write  # post the confirmation commit comment
+      issues: write    # post the confirmation commit comment
+      contents: write  # needed to post commit comments via REST API
 
     steps:
       - uses: actions/checkout@v4
