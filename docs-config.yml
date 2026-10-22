@@ -5,9 +5,9 @@
 # proposed content in notion-changes.md for human review before any Notion writes.
 
 pages:
-  - page_id: "3fe1043d-19d5-815a-ab17-db5b6a3c8634"
+  - page_id: "4011d2a6-e551-8066-8b7f-df6b72423858"
     page_title: "Studio FE — Widget Catalog (Demo)"
-    page_url: "https://app.notion.com/p/3fe1043d19d5815aab17db5b6a3c8634"
+    page_url: "https://app.notion.com/p/TEST-PAGE-4011d2a6e55180668b7fdf6b72423858"
     watch_paths:
       - "src/sovereign/typescript/apps/client/src/components/tp/locates/"
       - "src/sovereign/typescript/libs/shared/studio-platform/registry/"
