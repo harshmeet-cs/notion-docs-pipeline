@@ -13,7 +13,8 @@ const nextConfig = {
         new ModuleFederationPlugin({
           name: "studio_client",
           remotes: {
-            "studio-locates": `studio-locates@[window.REMOTES.locates]/remoteEntry.js`,
+            // v3: remoteEntry path now versioned for cache-busting
+            "studio-locates": `studio-locates@[window.REMOTES.locates]/v3/remoteEntry.js`,
             "studio-blotter": `studio-blotter@[window.REMOTES.blotter]/remoteEntry.js`,
             "studio-risk": `studio-risk@[window.REMOTES.risk]/remoteEntry.js`,
           },
