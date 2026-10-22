@@ -38,7 +38,9 @@ jobs:
       - name: Analyze diff and raise docs PR
         env:
           NOTION_API_TOKEN: ${{ secrets.NOTION_API_TOKEN }}
-          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          # Use GITHUB_TOKEN for push/PR — it has contents:write from the permissions block.
+          # GH_PAT (if set) is only used at checkout so the docs PR can trigger other workflows.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMIT_SHA: ${{ inputs.commit_sha || github.sha }}
           REPO: ${{ github.repository }}
           BASE_BRANCH: main
